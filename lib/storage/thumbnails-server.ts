@@ -25,9 +25,8 @@ const MAX_SOURCE_PIXELS = 100_000_000
 const WEBP_QUALITY = 80
 const MAX_CONCURRENT_DECODES = 4
 /**
- * The memory lever, and it is the download not the decode that costs:
- * `download()` buffers the whole object before returning and `arrayBuffer()`
- * copies it again. Capping here is what held transient buffers flat.
+ * Each active download retains at most MAX_SOURCE_BYTES of source data.
+ * Keep the slot until the stream has finished or has been cancelled.
  */
 const MAX_CONCURRENT_DOWNLOADS = 4
 
@@ -84,25 +83,37 @@ async function downloadSource(
   key: string
 ): Promise<Buffer> {
   return withDownloadSlot(async () => {
-    let stored
     try {
-      stored = await files.download(key)
-    } catch (error) {
-      throw normalizeError(error)
-    }
-
-    if (stored.size > MAX_SOURCE_BYTES) {
-      throw new ThumbnailTooLargeError(stored.size)
-    }
-
-    try {
-      const source = await stored.arrayBuffer()
-      if (source.byteLength > MAX_SOURCE_BYTES) {
-        throw new ThumbnailTooLargeError(source.byteLength)
+      const metadata = await files.head(key)
+      if (metadata.size > MAX_SOURCE_BYTES) {
+        throw new ThumbnailTooLargeError(metadata.size)
       }
-      return Buffer.from(source)
+
+      const stored = await files.download(key, { as: "stream" })
+      const reader = stored.stream().getReader()
+      try {
+        if (stored.size > MAX_SOURCE_BYTES) {
+          throw new ThumbnailTooLargeError(stored.size)
+        }
+
+        // A fixed buffer also bounds overhead from arbitrarily tiny chunks.
+        const source = Buffer.allocUnsafe(MAX_SOURCE_BYTES)
+        let size = 0
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) return source.subarray(0, size)
+          size += value.byteLength
+          if (size > MAX_SOURCE_BYTES) {
+            throw new ThumbnailTooLargeError(size)
+          }
+          source.set(value, size - value.byteLength)
+        }
+      } finally {
+        // Preserve the original error if the upstream is already broken.
+        await reader.cancel().catch(() => {})
+        reader.releaseLock()
+      }
     } catch (error) {
-      if (error instanceof ThumbnailTooLargeError) throw error
       throw normalizeError(error)
     }
   })
