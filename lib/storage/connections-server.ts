@@ -1,5 +1,7 @@
 import "server-only"
 
+import type { S3Client } from "@aws-sdk/client-s3"
+import { NodeHttpHandler } from "@smithy/node-http-handler"
 import { createFiles as createFilesSdk } from "files-sdk"
 import { alibaba } from "files-sdk/alibaba"
 import { backblazeB2 } from "files-sdk/backblaze-b2"
@@ -9,6 +11,7 @@ import { s3 } from "files-sdk/s3"
 import { tencent } from "files-sdk/tencent"
 import { webdav } from "files-sdk/webdav"
 import { zip } from "files-sdk/zip"
+import { AuthType, createClient } from "webdav"
 
 import { readCookie } from "@/lib/auth/core"
 import {
@@ -23,6 +26,11 @@ import {
   type ConnectionProvider,
   type WebdavAuthType,
 } from "@/lib/storage/connections"
+import {
+  assertEndpointAllowed,
+  privateEndpointsAllowed,
+  publicEndpointAgents,
+} from "@/lib/storage/endpoint-policy"
 import type { FilesClient } from "@/lib/storage/files-client"
 
 export type { FilesClient }
@@ -189,7 +197,19 @@ export function listPublicEnvConnections(): Connection[] {
   }))
 }
 
-function buildFiles(connection: Connection): FilesClient {
+function buildFiles(connection: Connection, restricted = false): FilesClient {
+  const files = buildFilesUnchecked(connection, restricted)
+  if (restricted && connection.provider !== "webdav") {
+    const client = files.raw as S3Client
+    client.config.requestHandler = new NodeHttpHandler(publicEndpointAgents)
+  }
+  return files
+}
+
+function buildFilesUnchecked(
+  connection: Connection,
+  restricted: boolean
+): FilesClient {
   const readonly = connection.readOnly
 
   if (connection.provider === "webdav") {
@@ -200,6 +220,17 @@ function buildFiles(connection: Connection): FilesClient {
     return createFilesSdk({
       adapter: webdav({
         baseUrl: connection.endpoint,
+        ...(restricted && {
+          client: createClient(connection.endpoint, {
+            username: connection.accessKeyId || undefined,
+            password: connection.secretAccessKey || undefined,
+            authType:
+              connection.authType === "basic"
+                ? AuthType.Password
+                : (connection.authType as AuthType | undefined),
+            ...publicEndpointAgents,
+          }),
+        }),
         username: connection.accessKeyId || undefined,
         password: connection.secretAccessKey || undefined,
         authType: connection.authType,
@@ -212,14 +243,30 @@ function buildFiles(connection: Connection): FilesClient {
   }
 
   if (connection.provider === "r2") {
+    const accountId = connection.accountId ?? process.env.R2_ACCOUNT_ID
+    if (restricted && !accountId) throw new Error("R2 requires an account ID.")
     return createFilesSdk({
-      adapter: r2({
-        bucket: connection.bucket,
-        accountId: connection.accountId,
-        accessKeyId: connection.accessKeyId,
-        secretAccessKey: connection.secretAccessKey,
-        publicBaseUrl: connection.publicBaseUrl,
-      }),
+      // R2's adapter initializes its client lazily; use its S3 equivalent so
+      // the guarded transport is installed before any network request.
+      adapter: restricted
+        ? s3({
+            bucket: connection.bucket,
+            region: "auto",
+            endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+            forcePathStyle: true,
+            credentials: {
+              accessKeyId: connection.accessKeyId,
+              secretAccessKey: connection.secretAccessKey,
+            },
+            publicBaseUrl: connection.publicBaseUrl,
+          })
+        : r2({
+            bucket: connection.bucket,
+            accountId: connection.accountId,
+            accessKeyId: connection.accessKeyId,
+            secretAccessKey: connection.secretAccessKey,
+            publicBaseUrl: connection.publicBaseUrl,
+          }),
       readonly,
       plugins: [zip()],
     })
@@ -325,77 +372,6 @@ function buildFiles(connection: Connection): FilesClient {
 }
 
 /**
- * A `local` ref names whatever endpoint the caller chose, so every server-side
- * fetch on its behalf is a request the caller aimed — pointed at the cloud
- * metadata service or an admin panel on the deployment's own network, that is
- * an SSRF. Login is optional in this app, so the check cannot lean on auth.
- * Env-configured connections are the operator's own and are never checked.
- *
- * Deployments that legitimately browse a LAN NAS or a sibling container set
- * `ALLOW_PRIVATE_ENDPOINTS=true`; local development is exempt.
- */
-const ALLOW_PRIVATE_ENDPOINTS =
-  process.env.ALLOW_PRIVATE_ENDPOINTS === "true" ||
-  process.env.NODE_ENV !== "production"
-
-function isPrivateHostname(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "")
-  if (
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".local") ||
-    host.endsWith(".internal")
-  ) {
-    return true
-  }
-
-  const ipv4 = /^(?:::ffff:)?(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/.exec(
-    host
-  )
-  if (ipv4) {
-    const first = Number(ipv4[1])
-    const second = Number(ipv4[2])
-    return (
-      first === 0 ||
-      first === 10 ||
-      first === 127 ||
-      (first === 169 && second === 254) ||
-      (first === 172 && second >= 16 && second <= 31) ||
-      (first === 192 && second === 168) ||
-      (first === 100 && second >= 64 && second <= 127)
-    )
-  }
-
-  // ::, ::1, fc00::/7 (unique local), fe80::/10 (link-local).
-  return (
-    host === "::" ||
-    host === "::1" ||
-    /^f[cd][0-9a-f]{2}:/.test(host) ||
-    /^fe[89ab][0-9a-f]:/.test(host)
-  )
-}
-
-function assertEndpointAllowed(value: string | undefined, label: string): void {
-  if (!value) return
-
-  let url: URL
-  try {
-    url = new URL(value)
-  } catch {
-    throw new Error(`${label} is not a valid URL.`)
-  }
-
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error(`${label} must use http or https.`)
-  }
-  if (!ALLOW_PRIVATE_ENDPOINTS && isPrivateHostname(url.hostname)) {
-    throw new Error(
-      `${label} points at a private address. Set ALLOW_PRIVATE_ENDPOINTS=true on the server to allow it.`
-    )
-  }
-}
-
-/**
  * Resolve a {@link ConnectionRef} from the browser to a credentialed `Files`
  * client. `env` refs are looked up in server-only env (the client only sent an
  * id); `local` refs carry the user's own credentials.
@@ -415,7 +391,10 @@ function resolveConnection(ref: ConnectionRef): Connection {
 }
 
 export function resolveFiles(ref: ConnectionRef): FilesClient {
-  return buildFiles(resolveConnection(ref))
+  return buildFiles(
+    resolveConnection(ref),
+    ref.source !== "env" && !privateEndpointsAllowed()
+  )
 }
 
 /**
@@ -456,5 +435,7 @@ export function assertConnectionWritable(ref: ConnectionRef): void {
 
 /** Build a `Files` client straight from a connection (used to test creds). */
 export function buildFilesForConnection(connection: Connection): FilesClient {
-  return buildFiles(connection)
+  assertEndpointAllowed(connection.endpoint, "Endpoint")
+  assertEndpointAllowed(connection.publicBaseUrl, "Public base URL")
+  return buildFiles(connection, !privateEndpointsAllowed())
 }

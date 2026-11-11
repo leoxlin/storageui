@@ -58,7 +58,7 @@ mise run setup
 mise run dev
 ```
 
-Mise pins Node.js and Bun for this project. Setup installs the locked dependencies and creates `.env.local` if it does not already exist.
+Mise pins Node.js and Bun for this project. Production uses Node.js (`npm start`), whose socket hooks enforce private-endpoint protection for UI-added connections; the Docker image uses Node.js as well. Setup installs the locked dependencies and creates `.env.local` if it does not already exist.
 
 Open `http://localhost:3000`. You can add a storage connection from the UI, or preconfigure server-side buckets by filling the `STORAGE_1_*` variables in `.env.local`.
 
