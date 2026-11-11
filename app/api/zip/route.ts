@@ -1,3 +1,4 @@
+import { isRequestAuthorized } from "@/lib/auth/core"
 import type { ConnectionRef } from "@/lib/storage/connection-ref"
 import { refFromRequest, resolveFiles } from "@/lib/storage/connections-server"
 import { collectZipKeys } from "@/lib/storage/file-operations"
@@ -5,6 +6,10 @@ import { collectZipKeys } from "@/lib/storage/file-operations"
 export const dynamic = "force-dynamic"
 
 export async function GET(request: Request) {
+  if (!(await isRequestAuthorized(request))) {
+    return new Response("Unauthorized.", { status: 401 })
+  }
+
   const url = new URL(request.url)
   const connectionId = url.searchParams.get("c")
   const path = url.searchParams.get("path")

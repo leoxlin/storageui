@@ -14,7 +14,8 @@
     "lint:fix": "eslint --fix . --cache --cache-location .eslintcache",
     "typecheck": "tsc --noEmit",
     "format:write": "prettier --write \"**/*.{ts,tsx}\" --cache",
-    "format:check": "prettier --check \"**/*.{ts,tsx}\" --cache"
+    "format:check": "prettier --check \"**/*.{ts,tsx}\" --cache",
+    "test:security": "bun test tests/storage-authorization.test.mjs"
   },
   "overrides": {
     "@types/react": "19.2.17",
