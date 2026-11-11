@@ -1,3 +1,4 @@
+import { isRequestAuthorized } from "@/lib/auth/core"
 import { isThumbnailWidth } from "@/lib/storage/thumbnails"
 import {
   getThumbnail,
@@ -23,6 +24,10 @@ function failure(message: string, status: number) {
 }
 
 export async function GET(request: Request) {
+  if (!(await isRequestAuthorized(request))) {
+    return failure("Unauthorized.", 401)
+  }
+
   const params = new URL(request.url).searchParams
   const handle = params.get("c")
   const key = params.get("k")
