@@ -49,11 +49,16 @@ Create a `.env` file with the `STORAGE_1_*` variables (see [`.env.example`](.env
 
 ### Local development
 
+With [mise](https://mise.jdx.dev/) installed:
+
 ```bash
-bun install
-cp .env.example .env.local
-bun run dev
+mise trust
+mise install
+mise run setup
+mise run dev
 ```
+
+Mise pins Node.js and Bun for this project. Setup installs the locked dependencies and creates `.env.local` if it does not already exist.
 
 Open `http://localhost:3000`. You can add a storage connection from the UI, or preconfigure server-side buckets by filling the `STORAGE_1_*` variables in `.env.local`.
 
