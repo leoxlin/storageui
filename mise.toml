@@ -1,0 +1,14 @@
+[tools]
+node = "24.16.0"
+bun = "1.3.14"
+
+[tasks.setup]
+description = "Install dependencies and create local environment file"
+run = [
+  "bun install --frozen-lockfile",
+  "test -e .env.local || cp .env.example .env.local",
+]
+
+[tasks.dev]
+description = "Start the local development server"
+run = "bun run dev"
