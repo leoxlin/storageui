@@ -379,8 +379,11 @@ export function useS3FileSystem(connection: Connection | null): S3FileSystem {
     return direct ? makeClientOps(connection) : Promise.resolve(serverOps(ref))
   }, [ref, connection, direct])
 
+  const activeOpsRef = React.useRef<Promise<FileOps | null> | null>(opsPromise)
+
   // Load the bucket root whenever the active connection or transport changes.
   React.useEffect(() => {
+    activeOpsRef.current = opsPromise
     if (!ref) {
       setItems([])
       setLoadedConnection(null)
@@ -412,6 +415,7 @@ export function useS3FileSystem(connection: Connection | null): S3FileSystem {
 
     return () => {
       cancelled = true
+      activeOpsRef.current = null
     }
   }, [ref, connection, opsPromise])
 
@@ -420,13 +424,16 @@ export function useS3FileSystem(connection: Connection | null): S3FileSystem {
   // mutation swaps the items in without flashing the full-content loading
   // state. The FileSystem's own `reloadToken` handles the visible folder.
   const refresh = React.useCallback(() => {
-    if (!ref) return
+    if (!ref || activeOpsRef.current !== opsPromise) return
     opsPromise
       .then((ops) => (ops ? ops.listFolder("", null) : null))
       .then((result) => {
-        if (result) setItems(result.items)
+        if (result && activeOpsRef.current === opsPromise)
+          setItems(result.items)
       })
-      .catch((err) => setError(errorMessage(err)))
+      .catch((err) => {
+        if (activeOpsRef.current === opsPromise) setError(errorMessage(err))
+      })
   }, [ref, opsPromise])
 
   const loadChildren = React.useCallback(

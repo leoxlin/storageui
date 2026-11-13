@@ -201,6 +201,9 @@ export function FileBrowser() {
 
   const { tasks, enqueue, dismiss, clearFinished, activeCount } = useUploads({
     uploadFile,
+    destination: activeConnection
+      ? `${activeConnection.name} (${activeConnection.bucket || activeConnection.endpoint || "/"})`
+      : "",
     onBatchComplete: () => {
       // Re-fetch the root listing and bump the reload token so the current
       // folder re-lists while staying put.

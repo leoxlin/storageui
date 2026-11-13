@@ -8,6 +8,7 @@ export type UploadTask = {
   id: string
   name: string
   key: string
+  destination: string
   status: UploadTaskStatus
   loaded: number
   total: number
@@ -92,76 +93,83 @@ type UploadFn = (
 export function useUploads({
   uploadFile,
   onBatchComplete,
+  destination,
 }: {
   uploadFile: UploadFn
   onBatchComplete?: () => void
+  destination: string
 }) {
   const [tasks, setTasks] = React.useState<UploadTask[]>([])
 
-  const uploadFileRef = React.useRef(uploadFile)
-  const onBatchCompleteRef = React.useRef(onBatchComplete)
+  const uploadFileRef = React.useRef<UploadFn | null>(uploadFile)
 
   React.useEffect(() => {
     uploadFileRef.current = uploadFile
+    return () => {
+      uploadFileRef.current = null
+    }
   }, [uploadFile])
 
-  React.useEffect(() => {
-    onBatchCompleteRef.current = onBatchComplete
-  }, [onBatchComplete])
+  const enqueue = React.useCallback(
+    (items: UploadItem[], prefix: string) => {
+      if (items.length === 0) return
+      const dest = normalizePrefix(prefix)
+      const entries = items.map(({ file, path }) => ({
+        id: nextId(),
+        file,
+        path,
+        key: `${dest}${path}`,
+      }))
 
-  const enqueue = React.useCallback((items: UploadItem[], prefix: string) => {
-    if (items.length === 0) return
-    const dest = normalizePrefix(prefix)
-    const entries = items.map(({ file, path }) => ({
-      id: nextId(),
-      file,
-      path,
-      key: `${dest}${path}`,
-    }))
+      setTasks((prev) => [
+        ...prev,
+        ...entries.map((e) => ({
+          id: e.id,
+          // The path, not the bare filename: in a folder upload it is the only
+          // thing that distinguishes one `slide1.png` from another.
+          name: e.path,
+          key: e.key,
+          destination: `${destination} /${dest}`,
+          status: "uploading" as UploadTaskStatus,
+          loaded: 0,
+          total: e.file.size,
+        })),
+      ])
 
-    setTasks((prev) => [
-      ...prev,
-      ...entries.map((e) => ({
-        id: e.id,
-        // The path, not the bare filename: in a folder upload it is the only
-        // thing that distinguishes one `slide1.png` from another.
-        name: e.path,
-        key: e.key,
-        status: "uploading" as UploadTaskStatus,
-        loaded: 0,
-        total: e.file.size,
-      })),
-    ])
-
-    void (async () => {
-      let successes = 0
-      for (const e of entries) {
-        try {
-          await uploadFileRef.current(e.key, e.file, ({ loaded, total }) => {
+      void (async () => {
+        let successes = 0
+        for (const e of entries) {
+          try {
+            await uploadFile(e.key, e.file, ({ loaded, total }) => {
+              setTasks((prev) =>
+                prev.map((t) =>
+                  t.id === e.id ? { ...t, loaded, total: total ?? t.total } : t
+                )
+              )
+            })
+            successes += 1
             setTasks((prev) =>
               prev.map((t) =>
-                t.id === e.id ? { ...t, loaded, total: total ?? t.total } : t
+                t.id === e.id ? { ...t, status: "done", loaded: t.total } : t
               )
             )
-          })
-          successes += 1
-          setTasks((prev) =>
-            prev.map((t) =>
-              t.id === e.id ? { ...t, status: "done", loaded: t.total } : t
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            setTasks((prev) =>
+              prev.map((t) =>
+                t.id === e.id ? { ...t, status: "error", error: message } : t
+              )
             )
-          )
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err)
-          setTasks((prev) =>
-            prev.map((t) =>
-              t.id === e.id ? { ...t, status: "error", error: message } : t
-            )
-          )
+          }
         }
-      }
-      if (successes > 0) onBatchCompleteRef.current?.()
-    })()
-  }, [])
+        // Only refresh if this batch's connection and transport are still active.
+        if (successes > 0 && uploadFileRef.current === uploadFile) {
+          onBatchComplete?.()
+        }
+      })()
+    },
+    [uploadFile, onBatchComplete, destination]
+  )
 
   const dismiss = React.useCallback((id: string) => {
     setTasks((prev) => prev.filter((t) => t.id !== id))
