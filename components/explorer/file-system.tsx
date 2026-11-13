@@ -893,6 +893,17 @@ export function FileSystem({
   const [loadingFolders, setLoadingFolders] = React.useState<Set<string>>(
     () => new Set()
   )
+  // A new loader means a new connection snapshot or transport.
+  React.useEffect(() => {
+    const requests = requestedFoldersRef.current
+    requests.clear()
+    setLoadedItems([])
+    setLoadingFolders(new Set())
+    return () => {
+      requests.clear()
+    }
+  }, [loadChildren])
+
   const ensureChildren = React.useCallback(
     (folderPath: string) => {
       if (!loadChildren) return

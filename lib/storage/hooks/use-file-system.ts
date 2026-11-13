@@ -379,6 +379,7 @@ export function useS3FileSystem(connection: Connection | null): S3FileSystem {
     return direct ? makeClientOps(connection) : Promise.resolve(serverOps(ref))
   }, [ref, connection, direct])
 
+  const activeOpsRef = React.useRef<Promise<FileOps | null> | null>(opsPromise)
   const rootRequest = React.useRef(0)
 
   // Initial loads and refreshes share pagination and a latest-request guard.
@@ -409,6 +410,7 @@ export function useS3FileSystem(connection: Connection | null): S3FileSystem {
 
   // Invalidate initial loads AND refreshes when the connection/transport changes.
   React.useEffect(() => {
+    activeOpsRef.current = opsPromise
     setItems([])
     setError(null)
     if (!ref) {
@@ -420,13 +422,14 @@ export function useS3FileSystem(connection: Connection | null): S3FileSystem {
     }
     return () => {
       rootRequest.current += 1
+      activeOpsRef.current = null
     }
-  }, [ref, loadRoot])
+  }, [ref, loadRoot, opsPromise])
 
   // Refresh silently so mutations do not flash the full-content loading state.
   const refresh = React.useCallback(() => {
-    if (ref) void loadRoot()
-  }, [ref, loadRoot])
+    if (ref && activeOpsRef.current === opsPromise) void loadRoot()
+  }, [ref, loadRoot, opsPromise])
 
   const loadChildren = React.useCallback(
     async ({ path, cursor }: { path: string; cursor: string | null }) => {

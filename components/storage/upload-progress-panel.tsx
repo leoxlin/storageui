@@ -100,6 +100,12 @@ export function UploadProgressPanel({
                   </button>
                 )}
               </div>
+              <p
+                className="mt-1 truncate pl-6 text-xs text-muted-foreground"
+                title={task.destination}
+              >
+                {task.destination}
+              </p>
               {task.status === "uploading" ? (
                 // Indented to the same column as the name and the byte count;
                 // the padding goes on a wrapper so the track itself starts
