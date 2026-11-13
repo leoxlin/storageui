@@ -283,6 +283,18 @@ async function webdavPathExists(
 
 /** Map a virtual prefix to the server-side path, mirroring the adapter's `keyToRemote`. */
 function webdavRemotePath(root: string, prefix: string): string {
+  // The client encodes percent signs itself, but preserves backslash pairs
+  // and expands these internal placeholders into path separators.
+  if (
+    prefix.includes("\0") ||
+    prefix.includes("\\") ||
+    prefix.includes("__PATH_SEPARATOR_POSIX__") ||
+    prefix.includes("__PATH_SEPARATOR_WINDOWS__") ||
+    prefix.split("/").includes("..")
+  ) {
+    throw new Error("Invalid WebDAV key.")
+  }
+
   const absolute = root.startsWith("/")
   const rootInner = root === "." ? "" : root.replace(/^\/+|\/+$/g, "")
   const inner = prefix.replace(/^\/+|\/+$/g, "")
