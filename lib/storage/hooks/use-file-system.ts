@@ -380,61 +380,56 @@ export function useS3FileSystem(connection: Connection | null): S3FileSystem {
   }, [ref, connection, direct])
 
   const activeOpsRef = React.useRef<Promise<FileOps | null> | null>(opsPromise)
+  const rootRequest = React.useRef(0)
 
-  // Load the bucket root whenever the active connection or transport changes.
+  // Initial loads and refreshes share pagination and a latest-request guard.
+  const loadRoot = React.useCallback(async () => {
+    const request = ++rootRequest.current
+    setError(null)
+    try {
+      const ops = await opsPromise
+      if (!ops || request !== rootRequest.current) return
+      const rootItems: FileSystemItem[] = []
+      let cursor: string | null = null
+      do {
+        const result = await ops.listFolder("", cursor)
+        if (request !== rootRequest.current) return
+        rootItems.push(...result.items)
+        cursor = result.nextCursor ?? null
+      } while (cursor)
+      setItems(rootItems)
+    } catch (err) {
+      if (request === rootRequest.current) setError(errorMessage(err))
+    } finally {
+      if (request === rootRequest.current) {
+        setLoadedConnection(connection)
+        setIsLoading(false)
+      }
+    }
+  }, [connection, opsPromise])
+
+  // Invalidate initial loads AND refreshes when the connection/transport changes.
   React.useEffect(() => {
     activeOpsRef.current = opsPromise
-    if (!ref) {
-      setItems([])
-      setLoadedConnection(null)
-      setError(null)
-      return
-    }
-
-    let cancelled = false
-    setIsLoading(true)
+    setItems([])
     setError(null)
-
-    opsPromise
-      .then((ops) => (ops ? ops.listFolder("", null) : null))
-      .then((result) => {
-        if (!cancelled && result) setItems(result.items)
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setItems([])
-          setError(errorMessage(err))
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoadedConnection(connection)
-          setIsLoading(false)
-        }
-      })
-
+    if (!ref) {
+      setLoadedConnection(null)
+      setIsLoading(false)
+    } else {
+      setIsLoading(true)
+      void loadRoot()
+    }
     return () => {
-      cancelled = true
+      rootRequest.current += 1
       activeOpsRef.current = null
     }
-  }, [ref, connection, opsPromise])
+  }, [ref, loadRoot, opsPromise])
 
-  // Re-fetch the root listing on demand (after uploads/deletes). Runs silently
-  // — it deliberately doesn't toggle `isLoading`, so re-listing after a
-  // mutation swaps the items in without flashing the full-content loading
-  // state. The FileSystem's own `reloadToken` handles the visible folder.
+  // Refresh silently so mutations do not flash the full-content loading state.
   const refresh = React.useCallback(() => {
-    if (!ref || activeOpsRef.current !== opsPromise) return
-    opsPromise
-      .then((ops) => (ops ? ops.listFolder("", null) : null))
-      .then((result) => {
-        if (result && activeOpsRef.current === opsPromise)
-          setItems(result.items)
-      })
-      .catch((err) => {
-        if (activeOpsRef.current === opsPromise) setError(errorMessage(err))
-      })
-  }, [ref, opsPromise])
+    if (ref && activeOpsRef.current === opsPromise) void loadRoot()
+  }, [ref, loadRoot, opsPromise])
 
   const loadChildren = React.useCallback(
     async ({ path, cursor }: { path: string; cursor: string | null }) => {

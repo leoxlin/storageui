@@ -201,6 +201,7 @@ export function FileBrowser() {
 
   const { tasks, enqueue, dismiss, clearFinished, activeCount } = useUploads({
     uploadFile,
+    connectionKey: JSON.stringify(activeConnection),
     destination: activeConnection
       ? `${activeConnection.name} (${activeConnection.bucket || activeConnection.endpoint || "/"})`
       : "",
@@ -269,6 +270,9 @@ export function FileBrowser() {
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
         <h2 className="text-base font-semibold">Couldn’t load this bucket</h2>
         <p className="max-w-md text-sm text-muted-foreground">{error}</p>
+        <Button variant="outline" onClick={refresh}>
+          Retry
+        </Button>
         <p className="text-xs text-muted-foreground">
           Check the credentials and that the bucket’s CORS policy allows this
           origin.

@@ -94,21 +94,26 @@ export function useUploads({
   uploadFile,
   onBatchComplete,
   destination,
+  connectionKey,
 }: {
   uploadFile: UploadFn
   onBatchComplete?: () => void
   destination: string
+  connectionKey: string
 }) {
   const [tasks, setTasks] = React.useState<UploadTask[]>([])
 
-  const uploadFileRef = React.useRef<UploadFn | null>(uploadFile)
+  const completionRef = React.useRef<{
+    connectionKey: string
+    onBatchComplete?: () => void
+  } | null>({ connectionKey, onBatchComplete })
 
   React.useEffect(() => {
-    uploadFileRef.current = uploadFile
+    completionRef.current = { connectionKey, onBatchComplete }
     return () => {
-      uploadFileRef.current = null
+      completionRef.current = null
     }
-  }, [uploadFile])
+  }, [connectionKey, onBatchComplete])
 
   const enqueue = React.useCallback(
     (items: UploadItem[], prefix: string) => {
@@ -162,13 +167,16 @@ export function useUploads({
             )
           }
         }
-        // Only refresh if this batch's connection and transport are still active.
-        if (successes > 0 && uploadFileRef.current === uploadFile) {
-          onBatchComplete?.()
+        // Returning to the same configuration creates a new uploader/refresh.
+        if (
+          successes > 0 &&
+          completionRef.current?.connectionKey === connectionKey
+        ) {
+          completionRef.current.onBatchComplete?.()
         }
       })()
     },
-    [uploadFile, onBatchComplete, destination]
+    [uploadFile, connectionKey, destination]
   )
 
   const dismiss = React.useCallback((id: string) => {

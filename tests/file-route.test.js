@@ -139,6 +139,47 @@ test("partial video range preserves the requested slice", async () => {
   expect(await response.text()).toBe("eview")
 })
 
+for (const [name, fallback] of [
+  ["报告.txt", "__.txt"],
+  ["😀.txt", "__.txt"],
+  ['a"b.txt', "a_b.txt"],
+  ["report.txt", "report.txt"],
+  ["control\r\n\t\0\x7f.txt", "control_____.txt"],
+]) {
+  for (const range of [false, true]) {
+    test(`text download retains filename ${JSON.stringify(name)} (${range ? 206 : 200})`, async () => {
+      const params = new URLSearchParams({
+        c: "env-1",
+        key: `folder/${name}`,
+        download: "1",
+      })
+      const response = await GET(
+        new Request(`https://storageui.test/api/file?${params}`, {
+          headers: range ? { Range: "bytes=2-6" } : {},
+        })
+      )
+      expect(response.status).toBe(range ? 206 : 200)
+      const disposition = response.headers.get("Content-Disposition")
+      expect(disposition).toStartWith(
+        `attachment; filename="${fallback}"; filename*=UTF-8''`
+      )
+      expect(decodeURIComponent(disposition.split("filename*=UTF-8''")[1])).toBe(
+        name
+      )
+      expect(response.headers.get("Content-Type")).toBe("text/plain")
+      expect(response.headers.get("Content-Length")).toBe(
+        String(range ? 5 : body.length)
+      )
+      if (range) {
+        expect(response.headers.get("Content-Range")).toBe(
+          `bytes 2-6/${body.length}`
+        )
+      }
+      expect(await response.text()).toBe(range ? "eview" : "preview content")
+    })
+  }
+}
+
 const filenameCases = [
   ["report.xlsx", "report.xlsx", "report.xlsx"],
   ["報告.xlsx", "__.xlsx", "%E5%A0%B1%E5%91%8A.xlsx"],

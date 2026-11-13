@@ -304,6 +304,7 @@
     "noUrl": "无法解析该文件的 URL。",
     "diagramError": "无法加载该图表。",
     "codeTooLarge": "文件过大，无法预览。请改为下载。",
+    "mixedLineEndings": "文件包含混合换行符：为保留原始文件，已禁用编辑。请下载后编辑。",
     "codeLoadFailed": "文件加载失败",
     "edit": "编辑",
     "saved": "已保存",

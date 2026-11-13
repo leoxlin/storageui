@@ -101,6 +101,7 @@ test("queued and overlapping batches retain uploader, prefix, destination and co
   const completions = []
   const a = {
     destination: "private (bucket-a)",
+    connectionKey: "a-original",
     uploadFile: async (key, file, progress) => {
       calls.push(["A", key])
       if (file.name === "one.txt") await first.promise
@@ -110,6 +111,7 @@ test("queued and overlapping batches retain uploader, prefix, destination and co
   }
   const b = {
     destination: "public (bucket-b)",
+    connectionKey: "b",
     uploadFile: async (key) => {
       calls.push(["B", key])
     },
@@ -146,6 +148,7 @@ test("editing the same connection keeps the old batch snapshot; failed files do 
     newRefreshes = 0
   const old = {
     destination: "same-id (old-bucket)",
+    connectionKey: "same-id-old-config",
     uploadFile: async (key) => {
       calls.push(["old", key])
       if (key === "one.txt") {
@@ -157,6 +160,7 @@ test("editing the same connection keeps the old batch snapshot; failed files do 
   }
   const edited = {
     destination: "same-id (new-bucket)",
+    connectionKey: "same-id-edited-config",
     uploadFile: async (key) => {
       calls.push(["new", key])
     },
@@ -208,7 +212,7 @@ for (const fails of [false, true]) {
   })
 }
 
-test("a batch on the active connection refreshes through its captured completion callback", async () => {
+test("a batch on the active connection uses the current matching refresh callback", async () => {
   const render = harness(useUploads)
   const pending = deferred()
   const completions = []
@@ -216,16 +220,18 @@ test("a batch on the active connection refreshes through its captured completion
   render({
     uploadFile,
     destination: "A",
+    connectionKey: "a-original",
     onBatchComplete: () => completions.push("original"),
   }).enqueue(items("one.txt"), "folder")
   render({
     uploadFile,
     destination: "A",
+    connectionKey: "a-original",
     onBatchComplete: () => completions.push("later render"),
   })
   pending.resolve()
   await flush()
-  assert.deepEqual(completions, ["original"])
+  assert.deepEqual(completions, ["later render"])
 })
 
 // Run the component's real folder-loading callbacks without its unrelated UI.
@@ -295,3 +301,41 @@ for (const operation of ["ensureChildren", "refetchFolder"]) {
     assert.equal(calls, 2)
   })
 }
+
+test("returning A → B → A refreshes the current A while writes keep the original uploader", async () => {
+  const render = harness(useUploads)
+  const pending = deferred()
+  const calls = [],
+    completions = []
+  const original = {
+    connectionKey: "a-original-config",
+    destination: "A",
+    uploadFile: async (key) => {
+      calls.push(["original A", key])
+      await pending.promise
+    },
+    onBatchComplete: () => completions.push("original A"),
+  }
+  render(original).enqueue(items("one.txt", "two.txt"), "folder/")
+  render({
+    connectionKey: "b",
+    destination: "B",
+    uploadFile: async () => {},
+    onBatchComplete: () => completions.push("B"),
+  })
+  const returned = {
+    ...original,
+    uploadFile: async (key) => {
+      calls.push(["returned A", key])
+    },
+    onBatchComplete: () => completions.push("returned A"),
+  }
+  render(returned)
+  pending.resolve()
+  await flush()
+  assert.deepEqual(calls, [
+    ["original A", "folder/one.txt"],
+    ["original A", "folder/two.txt"],
+  ])
+  assert.deepEqual(completions, ["returned A"])
+})

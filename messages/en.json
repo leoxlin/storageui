@@ -304,6 +304,7 @@
     "noUrl": "Couldn’t resolve a URL for this file.",
     "diagramError": "Couldn’t load this diagram.",
     "codeTooLarge": "File is too large to preview. Download it instead.",
+    "mixedLineEndings": "Mixed line endings: editing is disabled to preserve the original file. Download it to edit.",
     "codeLoadFailed": "Failed to load file",
     "edit": "Edit",
     "saved": "Saved",
