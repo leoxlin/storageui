@@ -893,6 +893,17 @@ export function FileSystem({
   const [loadingFolders, setLoadingFolders] = React.useState<Set<string>>(
     () => new Set()
   )
+  const activeLoaderRef = React.useRef(loadChildren)
+  React.useEffect(() => {
+    activeLoaderRef.current = loadChildren
+    requestedFoldersRef.current.clear()
+    setLoadedItems([])
+    setLoadingFolders(new Set())
+    return () => {
+      activeLoaderRef.current = undefined
+    }
+  }, [loadChildren])
+
   const ensureChildren = React.useCallback(
     (folderPath: string) => {
       if (!loadChildren) return
@@ -912,6 +923,7 @@ export function FileSystem({
 
           do {
             const result = await loadChildren({ cursor, path: folderPath })
+            if (activeLoaderRef.current !== loadChildren) return
 
             if (result.items.length) {
               setLoadedItems((previous) => [...previous, ...result.items])
@@ -919,14 +931,17 @@ export function FileSystem({
             cursor = result.nextCursor ?? null
           } while (cursor)
         } catch {
-          requestedFoldersRef.current.delete(folderPath)
+          if (activeLoaderRef.current === loadChildren) {
+            requestedFoldersRef.current.delete(folderPath)
+          }
         } finally {
-          setLoadingFolders((previous) => {
-            const next = new Set(previous)
+          if (activeLoaderRef.current === loadChildren)
+            setLoadingFolders((previous) => {
+              const next = new Set(previous)
 
-            next.delete(folderPath)
-            return next
-          })
+              next.delete(folderPath)
+              return next
+            })
         }
       })()
     },
@@ -949,6 +964,7 @@ export function FileSystem({
 
         do {
           const result = await loadChildren({ cursor, path: folderPath })
+          if (activeLoaderRef.current !== loadChildren) return
 
           collected.push(...result.items)
           cursor = result.nextCursor ?? null
@@ -967,12 +983,13 @@ export function FileSystem({
       } catch {
         // Keep the stale listing on failure.
       } finally {
-        setLoadingFolders((previous) => {
-          const next = new Set(previous)
+        if (activeLoaderRef.current === loadChildren)
+          setLoadingFolders((previous) => {
+            const next = new Set(previous)
 
-          next.delete(folderPath)
-          return next
-        })
+            next.delete(folderPath)
+            return next
+          })
       }
     },
     [loadChildren]

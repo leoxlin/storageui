@@ -1,5 +1,7 @@
 import assert from "node:assert/strict"
+import { readFileSync } from "node:fs"
 import { mock, test } from "bun:test"
+import ts from "typescript"
 
 // Exercise the hooks across renders without a DOM or a storage service.
 let current
@@ -15,7 +17,7 @@ function memo(factory, deps) {
   }
   return current.slots[index].value
 }
-mock.module("react", () => ({
+const hookReact = {
   useState(initial) {
     const owner = current
     const [value, index] = slot(() =>
@@ -41,7 +43,8 @@ mock.module("react", () => ({
       })
     }
   },
-}))
+}
+mock.module("react", () => hookReact)
 let listFolder
 mock.module("@/app/actions/files", () => ({
   listFolderAction: (...args) => listFolder(...args),
@@ -224,3 +227,71 @@ test("a batch on the active connection refreshes through its captured completion
   await flush()
   assert.deepEqual(completions, ["original"])
 })
+
+// Run the component's real folder-loading callbacks without its unrelated UI.
+const explorerSource = readFileSync(
+  new URL("../components/explorer/file-system.tsx", import.meta.url),
+  "utf8"
+)
+const folderCallbacks = new Function(
+  "React",
+  "index",
+  "loadChildren",
+  "setLoadedItems",
+  ts.transpile(
+    explorerSource.slice(
+      explorerSource.indexOf("  const requestedFoldersRef ="),
+      explorerSource.indexOf("  const navigateTo =")
+    ) + "\nreturn { ensureChildren, refetchFolder, loadingFolders }",
+    { target: ts.ScriptTarget.ESNext }
+  )
+)
+for (const operation of ["ensureChildren", "refetchFolder"]) {
+  test(`${operation} discards old responses and cached children after a same-ID connection edit`, async () => {
+    const render = harness((loadChildren) => {
+      const [loadedItems, setLoadedItems] = hookReact.useState([])
+      const callbacks = folderCallbacks(
+        hookReact,
+        {
+          folders: new Map([
+            ["folder/", { hasChildren: true }],
+            ["pending/", { hasChildren: true }],
+          ]),
+          children: new Map(),
+        },
+        loadChildren,
+        setLoadedItems
+      )
+      return { ...callbacks, loadedItems }
+    })
+    const pending = deferred()
+    let calls = 0
+    const oldLoader = () =>
+      ++calls === 1
+        ? Promise.resolve({ items: [{ path: "folder/cached-old.txt" }] })
+        : pending.promise
+    const newLoader = () =>
+      Promise.resolve({ items: [{ path: "pending/current.txt" }] })
+    render(oldLoader)
+    render(oldLoader).refetchFolder("folder/")
+    await flush()
+    assert.deepEqual(render(oldLoader).loadedItems, [
+      { path: "folder/cached-old.txt" },
+    ])
+    // A real refresh may be pending when the connection's bucket/root is edited.
+    void render(oldLoader)[operation]("pending/")
+    render(newLoader)
+    assert.deepEqual(render(newLoader).loadedItems, [])
+    render(newLoader)[operation]("pending/")
+    await flush()
+    pending.resolve({
+      items: [{ path: "pending/stale.txt" }],
+      nextCursor: "old-next-page",
+    })
+    await flush()
+    const result = render(newLoader)
+    assert.deepEqual(result.loadedItems, [{ path: "pending/current.txt" }])
+    assert.equal(result.loadingFolders.size, 0)
+    assert.equal(calls, 2)
+  })
+}
