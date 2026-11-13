@@ -908,16 +908,19 @@ export function FileSystem({
 
       void (async () => {
         try {
+          const collected: FileSystemItem[] = []
           let cursor: string | null = null
 
           do {
             const result = await loadChildren({ cursor, path: folderPath })
 
-            if (result.items.length) {
-              setLoadedItems((previous) => [...previous, ...result.items])
-            }
+            collected.push(...result.items)
             cursor = result.nextCursor ?? null
           } while (cursor)
+
+          if (collected.length) {
+            setLoadedItems((previous) => [...previous, ...collected])
+          }
         } catch {
           requestedFoldersRef.current.delete(folderPath)
         } finally {
@@ -954,6 +957,12 @@ export function FileSystem({
           cursor = result.nextCursor ?? null
         } while (cursor)
 
+        // Descendant listings are discarded below, so they must be loadable again.
+        for (const path of requestedFoldersRef.current) {
+          if (path !== folderPath && path.startsWith(folderPath)) {
+            requestedFoldersRef.current.delete(path)
+          }
+        }
         requestedFoldersRef.current.add(folderPath)
         setLoadedItems((previous) => {
           // Replace this folder's children (and any deeper, now-stale ones)
