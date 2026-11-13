@@ -1,7 +1,6 @@
 const encoder = new TextEncoder()
 
 export const SESSION_COOKIE_NAME = "fs_session"
-const SESSION_PAYLOAD = "filesystem-auth-v1"
 export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 7 // 7 days
 
 /** Auth is active only when both credentials are configured. */
@@ -30,6 +29,14 @@ export function verifyCredentials(username: string, password: string): boolean {
 }
 
 export async function createSessionToken(): Promise<string> {
+  const issuedAt = Math.floor(Date.now() / 1000)
+  const expiresAt = issuedAt + SESSION_MAX_AGE_SECONDS
+  const sessionId = toHex(crypto.getRandomValues(new Uint8Array(16)))
+  const payload = `v2.${issuedAt}.${expiresAt}.${sessionId}`
+  return `${payload}.${await signSessionPayload(payload)}`
+}
+
+async function signSessionPayload(payload: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     encoder.encode(sessionSecret()),
@@ -40,7 +47,7 @@ export async function createSessionToken(): Promise<string> {
   const signature = await crypto.subtle.sign(
     "HMAC",
     key,
-    encoder.encode(SESSION_PAYLOAD)
+    encoder.encode(payload)
   )
   return toHex(new Uint8Array(signature))
 }
@@ -49,7 +56,26 @@ export async function verifySessionToken(
   token: string | undefined | null
 ): Promise<boolean> {
   if (!token) return false
-  return timingSafeEqual(token, await createSessionToken())
+  const parts =
+    /^(v2\.([1-9][0-9]{0,15})\.([1-9][0-9]{0,15})\.[a-f0-9]{32})\.([a-f0-9]{64})$/.exec(
+      token
+    )
+  if (!parts || parts[0] !== token) return false
+
+  const [, payload, issuedAtText, expiresAtText, signature] = parts
+  const issuedAt = Number(issuedAtText)
+  const expiresAt = Number(expiresAtText)
+  const now = Math.floor(Date.now() / 1000)
+  if (
+    !Number.isSafeInteger(issuedAt) ||
+    !Number.isSafeInteger(expiresAt) ||
+    issuedAt > now ||
+    expiresAt !== issuedAt + SESSION_MAX_AGE_SECONDS ||
+    now >= expiresAt
+  )
+    return false
+
+  return timingSafeEqual(signature, await signSessionPayload(payload))
 }
 
 /**

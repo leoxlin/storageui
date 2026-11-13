@@ -8,6 +8,9 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
+COPY tests/dependency-security.test.mjs ./tests/
+RUN bun run test:security:dependencies
+
 # ─── Build ────────────────────────────────────────────────────────────────────
 # Runs on the build host's own platform: under QEMU (the arm64 half of a
 # multi-arch build on amd64 runners) Bun crashes with SIGTRAP in `next build`.

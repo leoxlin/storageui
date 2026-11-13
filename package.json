@@ -14,8 +14,10 @@
     "lint:fix": "eslint --fix . --cache --cache-location .eslintcache",
     "typecheck": "tsc --noEmit",
     "test:security:endpoints": "node --test tests/storage-endpoints.test.mjs",
+    "test:security:dependencies": "bun test tests/dependency-security.test.mjs",
     "format:write": "prettier --write \"**/*.{ts,tsx}\" --cache",
-    "format:check": "prettier --check \"**/*.{ts,tsx}\" --cache"
+    "format:check": "prettier --check \"**/*.{ts,tsx}\" --cache",
+    "test:security": "bun test tests/dependency-security.test.mjs tests/storage-authorization.test.mjs && node --test lib/auth/core.test.mjs lib/storage/file-operations.test.mjs tests/storage-endpoints.test.mjs"
   },
   "overrides": {
     "@types/react": "19.2.17",
@@ -77,7 +79,7 @@
     "lodash": "^4.18.1",
     "lru-cache": "^11.5.2",
     "marked": "^18.0.7",
-    "next": "16.3.6",
+    "next": "16.4.6",
     "next-intl": "^4.13.2",
     "next-themes": "0.4.6",
     "nuqs": "^2.9.1",
@@ -94,7 +96,7 @@
     "rehype-sanitize": "^6.0.0",
     "remark-gfm": "4.0.1",
     "shadcn": "^4.13.1",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.5",
     "shiki": "^4.3.1",
     "signature_pad": "^5.1.3",
     "sonner": "^2.0.7",
@@ -112,7 +114,7 @@
     "@types/react-dom": "19.2.3",
     "babel-plugin-react-compiler": "^1.0.0",
     "eslint": "^10",
-    "eslint-config-next": "16.3.6",
+    "eslint-config-next": "16.4.6",
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "tailwindcss": "^4",
