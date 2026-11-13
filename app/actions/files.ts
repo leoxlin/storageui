@@ -1,5 +1,6 @@
 "use server"
 
+import { requireSession } from "@/lib/auth/server"
 import type { ConnectionRef } from "@/lib/storage/connection-ref"
 import type { Connection } from "@/lib/storage/connections"
 import {
@@ -13,11 +14,13 @@ import type { FileSystemLoadChildrenResult } from "@/components/explorer/types"
 
 /** The env connections, with credentials stripped, for the sidebar. */
 export async function listEnvConnectionsAction(): Promise<Connection[]> {
+  await requireSession()
   return listPublicEnvConnections()
 }
 
 /** Validate a connection's credentials + CORS with one cheap round trip. */
 export async function testConnectionAction(ref: ConnectionRef): Promise<void> {
+  await requireSession()
   return fileOps.probeConnection(resolveFiles(ref))
 }
 
@@ -27,6 +30,7 @@ export async function listFolderAction(
   prefix: string,
   cursor: string | null
 ): Promise<FileSystemLoadChildrenResult> {
+  await requireSession()
   return fileOps.listFolder(resolveFiles(ref), prefix, cursor)
 }
 
@@ -35,6 +39,7 @@ export async function signFileUrlAction(
   ref: ConnectionRef,
   key: string
 ): Promise<string> {
+  await requireSession()
   return fileOps.signFileUrl(resolveFiles(ref), key)
 }
 
@@ -42,6 +47,7 @@ export async function signFileUrlsAction(
   ref: ConnectionRef,
   keys: string[]
 ): Promise<Record<string, string>> {
+  await requireSession()
   return fileOps.signFileUrls(resolveFiles(ref), keys)
 }
 
@@ -51,6 +57,7 @@ export async function signUploadUrlAction(
   key: string,
   contentType?: string
 ): Promise<SignedUpload> {
+  await requireSession()
   assertConnectionWritable(ref)
   return fileOps.signUploadUrl(resolveFiles(ref), key, contentType)
 }
@@ -60,6 +67,7 @@ export async function createFolderAction(
   ref: ConnectionRef,
   path: string
 ): Promise<void> {
+  await requireSession()
   assertConnectionWritable(ref)
   return fileOps.createFolder(resolveFiles(ref), path)
 }
@@ -69,6 +77,7 @@ export async function deleteEntryAction(
   ref: ConnectionRef,
   item: EntryRef
 ): Promise<void> {
+  await requireSession()
   assertConnectionWritable(ref)
   return fileOps.deleteEntry(resolveFiles(ref), item)
 }
@@ -79,6 +88,7 @@ export async function renameEntryAction(
   item: EntryRef,
   name: string
 ): Promise<void> {
+  await requireSession()
   assertConnectionWritable(ref)
   return fileOps.renameEntry(resolveFiles(ref), item, name)
 }
@@ -89,6 +99,7 @@ export async function moveEntryAction(
   item: EntryRef,
   destinationFolder: string
 ): Promise<void> {
+  await requireSession()
   assertConnectionWritable(ref)
   return fileOps.moveEntry(resolveFiles(ref), item, destinationFolder)
 }

@@ -62,6 +62,12 @@ Mise pins Node.js and Bun for this project. Setup installs the locked dependenci
 
 Open `http://localhost:3000`. You can add a storage connection from the UI, or preconfigure server-side buckets by filling the `STORAGE_1_*` variables in `.env.local`.
 
+### Login sessions
+
+Set both `AUTH_USERNAME` and `AUTH_PASSWORD` to require sign-in. Each login gets a unique signed token that expires on the server after seven days. Changing either credential or `AUTH_SECRET` invalidates all existing tokens. Upgrading from the old token format also requires users to sign in again.
+
+Logout removes the cookie from the current browser. It does not revoke a copied token; that token remains valid until its expiry or a credential/secret change.
+
 ## License
 
 [Apache-2.0](LICENSE.md)
