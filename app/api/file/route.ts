@@ -71,27 +71,14 @@ export async function GET(request: Request) {
         as: "stream",
         range: { start: range.start, end },
       })
-      const headers = new Headers({
-        "Accept-Ranges": "bytes",
-        "Content-Type": stored.type || type,
-        "Content-Range": `bytes ${range.start}-${end}/${total}`,
-        "Content-Length": String(end - range.start + 1),
-      })
+      const headers = fileHeaders(stored.type || type, key, download)
+      headers.set("Content-Range", `bytes ${range.start}-${end}/${total}`)
+      headers.set("Content-Length", String(end - range.start + 1))
       return new Response(stored.stream(), { status: 206, headers })
     }
 
     const stored = await files.download(key, { as: "stream" })
-    const headers = new Headers({
-      "Accept-Ranges": "bytes",
-      "Content-Type": stored.type || type,
-    })
-    if (download) {
-      const name = key.split("/").pop() || "download"
-      headers.set(
-        "Content-Disposition",
-        `attachment; filename="${name.replaceAll('"', "")}"`
-      )
-    }
+    const headers = fileHeaders(stored.type || type, key, download)
     if (stored.size) headers.set("Content-Length", String(stored.size))
     return new Response(stored.stream(), { status: 200, headers })
   } catch (error) {
@@ -99,6 +86,33 @@ export async function GET(request: Request) {
     const isMissing = /\(NotFound\)/.test(err.message)
     return new Response(err.message, { status: isMissing ? 404 : 502 })
   }
+}
+
+/** Storage content must never inherit the application's origin privileges. */
+function fileHeaders(type: string, key: string, download: boolean): Headers {
+  const headers = new Headers({
+    "Accept-Ranges": "bytes",
+    "Content-Type": type,
+    "Content-Security-Policy": "sandbox",
+    "X-Content-Type-Options": "nosniff",
+  })
+  const mime = type.split(";", 1)[0].trim().toLowerCase()
+  const previewable =
+    /^(text|image|audio|video)\//.test(mime) ||
+    ["application/pdf", "application/json", "application/xml"].includes(mime)
+  if (download || !previewable) {
+    const name = key.split("/").pop() || "download"
+    const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_")
+    const encoded = encodeURIComponent(name).replace(
+      /['()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    )
+    headers.set(
+      "Content-Disposition",
+      `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`
+    )
+  }
+  return headers
 }
 
 /** Parse a single `bytes=start-end` range; `end` is inclusive. */
