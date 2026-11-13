@@ -9,7 +9,7 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
 COPY tests/dependency-security.test.mjs ./tests/
-RUN bun run test:security
+RUN bun run test:security:dependencies
 
 # ─── Build ────────────────────────────────────────────────────────────────────
 # Runs on the build host's own platform: under QEMU (the arm64 half of a
@@ -34,7 +34,8 @@ COPY . .
 RUN bun run build
 
 # ─── Runtime ──────────────────────────────────────────────────────────────────
-FROM oven/bun:1.3.14 AS runner
+# Node enforces the socket hooks used by the private-endpoint SSRF guard.
+FROM node:24.16.0-bookworm-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production \
@@ -44,15 +45,15 @@ ENV NODE_ENV=production \
 
 # Ship only what `next start` needs to run: build output, static assets,
 # config, and the installed dependencies.
-COPY --from=builder --chown=bun:bun /app/.next ./.next
-COPY --from=builder --chown=bun:bun /app/public ./public
-COPY --from=dependencies --chown=bun:bun /app/node_modules ./node_modules
-COPY --from=builder --chown=bun:bun /app/package.json ./package.json
-COPY --from=builder --chown=bun:bun /app/next.config.mjs ./next.config.mjs
+COPY --from=builder --chown=node:node /app/.next ./.next
+COPY --from=builder --chown=node:node /app/public ./public
+COPY --from=dependencies --chown=node:node /app/node_modules ./node_modules
+COPY --from=builder --chown=node:node /app/package.json ./package.json
+COPY --from=builder --chown=node:node /app/next.config.mjs ./next.config.mjs
 
 # Server-side connection and auth vars (STORAGE_*, AUTH_*) are read at runtime;
 # pass them with `-e` / `--env-file` when starting the container.
 
-USER bun
+USER node
 EXPOSE 3000
-CMD ["bun", "run", "start"]
+CMD ["npm", "run", "start"]
