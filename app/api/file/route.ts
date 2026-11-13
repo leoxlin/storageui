@@ -102,9 +102,14 @@ function fileHeaders(type: string, key: string, download: boolean): Headers {
     ["application/pdf", "application/json", "application/xml"].includes(mime)
   if (download || !previewable) {
     const name = key.split("/").pop() || "download"
+    const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, "_")
+    const encoded = encodeURIComponent(name).replace(
+      /['()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    )
     headers.set(
       "Content-Disposition",
-      `attachment; filename="${name.replaceAll('"', "")}"`
+      `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`
     )
   }
   return headers

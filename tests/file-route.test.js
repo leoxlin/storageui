@@ -109,7 +109,7 @@ for (const range of [false, true]) {
       request('folder/a"b.txt', { range, download: true })
     )
     expect(response.headers.get("Content-Disposition")).toBe(
-      'attachment; filename="ab.txt"'
+      `attachment; filename="a_b.txt"; filename*=UTF-8''a%22b.txt`
     )
     expectIsolation(response)
     expect(await response.text()).toBe("preview content")
@@ -119,7 +119,7 @@ for (const range of [false, true]) {
     contentType = "application/x-shockwave-flash"
     const response = await GET(request("active.swf", { range }))
     expect(response.headers.get("Content-Disposition")).toBe(
-      'attachment; filename="active.swf"'
+      `attachment; filename="active.swf"; filename*=UTF-8''active.swf`
     )
     expectIsolation(response)
   })
@@ -138,3 +138,36 @@ test("partial video range preserves the requested slice", async () => {
   expect(response.headers.get("Content-Length")).toBe("5")
   expect(await response.text()).toBe("eview")
 })
+
+const filenameCases = [
+  ["report.xlsx", "report.xlsx", "report.xlsx"],
+  ["報告.xlsx", "__.xlsx", "%E5%A0%B1%E5%91%8A.xlsx"],
+  ["résumé 😀.docx", "r_sum_ __.docx", "r%C3%A9sum%C3%A9%20%F0%9F%98%80.docx"],
+  [
+    'a"b\\c\r\n\t\0\x7f.xlsx',
+    "a_b_c_____.xlsx",
+    "a%22b%5Cc%0D%0A%09%00%7F.xlsx",
+  ],
+  ["a'()*%;.xlsx", "a'()*%;.xlsx", "a%27%28%29%2A%25%3B.xlsx"],
+]
+
+for (const [name, fallback, encoded] of filenameCases) {
+  for (const range of [false, true]) {
+    for (const download of [false, true]) {
+      test(`safe filename ${JSON.stringify(name)} (${range ? 206 : 200}, download=${download})`, async () => {
+        contentType = name.endsWith(".docx")
+          ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        const response = await GET(
+          request(`folder/${name}`, { range, download })
+        )
+        expect(response.status).toBe(range ? 206 : 200)
+        expect(response.headers.get("Content-Disposition")).toBe(
+          `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`
+        )
+        expectIsolation(response)
+        expect(await response.text()).toBe("preview content")
+      })
+    }
+  }
+}
