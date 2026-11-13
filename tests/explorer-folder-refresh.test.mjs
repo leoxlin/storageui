@@ -29,7 +29,7 @@ function harness(loadChildren) {
   const roots = [folder("parent/"), folder("parentish/")]
   let items = []
   let loading = new Set()
-  const requested = { current: new Set() }
+  const requested = { current: new Map() }
   const index = {
     get folders() {
       return new Map(
@@ -100,14 +100,17 @@ for (const childItems of [[file("parent/child/a.txt")], []]) {
 
 test("invalidates every descendant marker while preserving the parent and sibling prefix", async () => {
   const h = harness(async () => ({ items: [folder("parent/child/")] }))
-  h.requested.current = new Set([
-    "parent/",
-    "parent/child/",
-    "parent/child/deep/",
-    "parentish/child/",
+  h.requested.current = new Map([
+    ["parent/", Symbol()],
+    ["parent/child/", Symbol()],
+    ["parent/child/deep/", Symbol()],
+    ["parentish/child/", Symbol()],
   ])
   await h.refetchFolder("parent/")
-  assert.deepEqual([...h.requested.current], ["parent/", "parentish/child/"])
+  assert.deepEqual(
+    [...h.requested.current.keys()],
+    ["parent/", "parentish/child/"]
+  )
 })
 
 test("a failed paginated child load can retry without partial or duplicate entries", async () => {
@@ -159,4 +162,72 @@ test("failed parent refresh preserves cached children and can be retried", async
   fail = false
   await h.refetchFolder("parent/")
   assert.equal(h.requested.current.has("parent/child/"), false)
+})
+
+function deferred() {
+  let resolve, reject
+  const promise = new Promise((yes, no) => {
+    resolve = yes
+    reject = no
+  })
+  return { promise, resolve, reject }
+}
+
+for (const oldFails of [false, true]) {
+  for (const oldFinishesFirst of [false, true]) {
+    test(`invalidated child ${oldFails ? "failure" : "success"} cannot affect a newer request (old finishes first=${oldFinishesFirst})`, async () => {
+      const old = deferred()
+      const fresh = deferred()
+      let requests = 0
+      const h = harness(({ path }) => {
+        if (path === "parent/")
+          return Promise.resolve({ items: [folder("parent/child/")] })
+        return ++requests === 1 ? old.promise : fresh.promise
+      })
+      await h.refetchFolder("parent/")
+      h.ensureChildren("parent/child/")
+      await h.refetchFolder("parent/")
+      assert.equal(h.loading.has("parent/child/"), false)
+      h.ensureChildren("parent/child/")
+      const finishOld = async () => {
+        if (oldFails) old.reject(new Error("obsolete failure"))
+        else old.resolve({ items: [file("parent/child/deleted.txt")] })
+        await tick()
+      }
+      if (oldFinishesFirst) {
+        await finishOld()
+        assert.equal(h.loading.has("parent/child/"), true)
+        assert.equal(h.requested.current.has("parent/child/"), true)
+        h.ensureChildren("parent/child/")
+        assert.equal(requests, 2)
+      }
+      fresh.resolve({ items: [file("parent/child/current.txt")] })
+      await tick()
+      if (!oldFinishesFirst) await finishOld()
+      assert.deepEqual(
+        h.items.map((item) => item.path),
+        ["parent/child/", "parent/child/current.txt"]
+      )
+      assert.equal(h.loading.size, 0)
+      assert.equal(h.requested.current.has("parent/child/"), true)
+    })
+  }
+}
+
+test("overlapping refreshes commit only the latest request", async () => {
+  const old = deferred()
+  const fresh = deferred()
+  let requests = 0
+  const h = harness(() => (++requests === 1 ? old.promise : fresh.promise))
+  const first = h.refetchFolder("parent/")
+  const second = h.refetchFolder("parent/")
+  fresh.resolve({ items: [file("parent/current.txt")] })
+  await second
+  old.resolve({ items: [file("parent/deleted.txt")] })
+  await first
+  assert.deepEqual(
+    h.items.map((item) => item.path),
+    ["parent/current.txt"]
+  )
+  assert.equal(h.loading.size, 0)
 })
