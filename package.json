@@ -13,11 +13,11 @@
     "lint": "eslint . --cache --cache-location .eslintcache",
     "lint:fix": "eslint --fix . --cache --cache-location .eslintcache",
     "typecheck": "tsc --noEmit",
-    "test:security:endpoints": "node --test tests/storage-endpoints.test.mjs",
+    "test:security:endpoints": "node --test tests/storage-endpoints.test.mjs tests/endpoint-pools.test.mjs",
     "test:security:dependencies": "bun test tests/dependency-security.test.mjs",
     "format:write": "prettier --write \"**/*.{ts,tsx}\" --cache",
     "format:check": "prettier --check \"**/*.{ts,tsx}\" --cache",
-    "test:security": "bun test tests/dependency-security.test.mjs tests/storage-authorization.test.mjs && node --test lib/auth/core.test.mjs lib/storage/file-operations.test.mjs tests/storage-endpoints.test.mjs"
+    "test:security": "bun test tests/dependency-security.test.mjs tests/storage-authorization.test.mjs && node --test lib/auth/core.test.mjs lib/storage/file-operations.test.mjs tests/storage-endpoints.test.mjs tests/endpoint-pools.test.mjs"
   },
   "overrides": {
     "@types/react": "19.2.17",

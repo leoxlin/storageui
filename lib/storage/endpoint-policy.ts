@@ -1,5 +1,9 @@
 import { lookup } from "node:dns"
-import { Agent as HttpAgent } from "node:http"
+import {
+  Agent as HttpAgent,
+  type ClientRequest,
+  type RequestOptions,
+} from "node:http"
 import { Agent as HttpsAgent } from "node:https"
 import type { LookupFunction } from "node:net"
 import ipaddr from "ipaddr.js"
@@ -65,7 +69,23 @@ const publicLookup: LookupFunction = (hostname, options, callback) => {
   })
 }
 
+export const ENDPOINT_REQUEST_TIMEOUT_MS = 120_000
+
 function publicAgent<T extends HttpAgent>(agent: T): T {
+  // Start before Agent queues the request: a saturated pool must not make
+  // callers wait indefinitely. Keep the deadline through the response body.
+  const boundedAgent = agent as T & {
+    addRequest(request: ClientRequest, options: RequestOptions): void
+  }
+  const addRequest = boundedAgent.addRequest
+  boundedAgent.addRequest = function (request, options) {
+    const timer = setTimeout(() => {
+      request.destroy(new Error("Storage endpoint request timed out."))
+    }, ENDPOINT_REQUEST_TIMEOUT_MS)
+    timer.unref()
+    request.once("close", () => clearTimeout(timer))
+    addRequest.call(this, request, options)
+  }
   const connect = agent.createConnection
   agent.createConnection = function (options, callback) {
     // Literal IPs skip Node's lookup hook; check them here as well. This runs
@@ -83,7 +103,15 @@ function publicAgent<T extends HttpAgent>(agent: T): T {
 
 // Process-owned pools, used only by untrusted local connections. Env connections
 // and the operator's explicit private-endpoint opt-in retain their transports.
+const poolOptions = {
+  keepAlive: true,
+  maxTotalSockets: 64,
+  maxSockets: 16,
+  maxFreeSockets: 2,
+  timeout: 15_000,
+}
+
 export const publicEndpointAgents = {
-  httpAgent: publicAgent(new HttpAgent({ keepAlive: true })),
-  httpsAgent: publicAgent(new HttpsAgent({ keepAlive: true })),
+  httpAgent: publicAgent(new HttpAgent(poolOptions)),
+  httpsAgent: publicAgent(new HttpsAgent(poolOptions)),
 }
