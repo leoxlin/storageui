@@ -101,7 +101,10 @@ async function downloadSource(
         let size = 0
         while (true) {
           const { done, value } = await reader.read()
-          if (done) return source.subarray(0, size)
+          if (done) {
+            // Queued decodes must not retain the unused download capacity.
+            return Buffer.from(source.buffer.slice(0, size))
+          }
           size += value.byteLength
           if (size > MAX_SOURCE_BYTES) {
             throw new ThumbnailTooLargeError(size)
