@@ -24,6 +24,8 @@ import { toast } from "sonner"
 
 import { Spinner } from "@/components/ui/spinner"
 
+import { sourceLineSeparator } from "./line-endings"
+
 // CodeMirror's search/go-to-line panels are English by default; map the visible
 // phrases per locale via the `phrases` facet (keyed by the original English).
 const CODEMIRROR_PHRASES: Record<string, Record<string, string>> = {
@@ -293,6 +295,7 @@ export const CodeViewer = React.forwardRef<
   const isDark = resolvedTheme === "dark"
 
   const [text, setText] = React.useState<string | null>(null)
+  const lineSeparator = text === null ? "\n" : sourceLineSeparator(text)
   const [error, setError] = React.useState<string | null>(null)
   const [view, setView] = React.useState<EditorView | null>(null)
   const [dirty, setDirty] = React.useState(false)
@@ -310,13 +313,19 @@ export const CodeViewer = React.forwardRef<
     async (target: EditorView): Promise<boolean> => {
       const onSave = onSaveRef.current
       const doc = target.state.doc
-      if (!onSave || savingRef.current || !savedDocRef.current) return false
+      if (
+        !onSave ||
+        target.state.readOnly ||
+        savingRef.current ||
+        !savedDocRef.current
+      )
+        return false
       if (doc.eq(savedDocRef.current)) return true
 
       savingRef.current = true
       setSaving(true)
       try {
-        await onSave(doc.toString(), contentTypeRef.current)
+        await onSave(target.state.sliceDoc(), contentTypeRef.current)
         savedDocRef.current = doc
         // Typing can continue while the upload is in flight.
         const clean = target.state.doc.eq(doc)
@@ -413,12 +422,16 @@ export const CodeViewer = React.forwardRef<
     const host = hostRef.current
     if (text === null || !host) return
 
+    const separator = sourceLineSeparator(text)
     const next = new EditorView({
       parent: host,
       state: EditorState.create({
         doc: text,
         extensions: [
           basicSetup,
+          ...(separator === null
+            ? []
+            : [EditorState.lineSeparator.of(separator)]),
           search({ top: true }),
           phrasesCompartment.of([]),
           themeCompartment.of([]),
@@ -473,11 +486,11 @@ export const CodeViewer = React.forwardRef<
     if (!view) return
     view.dispatch({
       effects: readOnlyCompartment.reconfigure(
-        EditorState.readOnly.of(!editable)
+        EditorState.readOnly.of(!editable || lineSeparator === null)
       ),
     })
-    if (editable) view.focus()
-  }, [view, editable])
+    if (editable && lineSeparator !== null) view.focus()
+  }, [view, editable, lineSeparator])
 
   React.useEffect(() => {
     if (!view) return
@@ -502,7 +515,14 @@ export const CodeViewer = React.forwardRef<
           <Spinner />
         </div>
       ) : (
-        <div ref={hostRef} className="h-full overflow-hidden" />
+        <div className="flex h-full flex-col">
+          {editable && lineSeparator === null && (
+            <p role="status" className="p-3 text-sm text-muted-foreground">
+              {t("mixedLineEndings")}
+            </p>
+          )}
+          <div ref={hostRef} className="min-h-0 flex-1 overflow-hidden" />
+        </div>
       )}
     </div>
   )
